@@ -2075,7 +2075,11 @@ class MainWindowController: PlayerWindowController {
     NSAnimationContext.runAnimationGroup({ (context) in
       context.duration = AccessibilityPreferences.adjustedDuration(UIAnimationDuration)
       fadeableViews.forEach { (v) in
-        v.animator().alphaValue = 1
+        if v === oscFloatingView || v === oscBottomView {
+          v.animator().alphaValue = 0.3
+        } else {
+          v.animator().alphaValue = 1
+        }
       }
       if !fsState.isFullscreen {
         titleTextField?.animator().alphaValue = 1
@@ -2182,7 +2186,7 @@ class MainWindowController: PlayerWindowController {
 
     osdView.updateViews(fromMessage: message, player: player)
 
-    osdView.alphaValue = 1
+    osdView.alphaValue = 0.3
     osdView.isHidden = false
     osdView.layoutSubtreeIfNeeded()
 
