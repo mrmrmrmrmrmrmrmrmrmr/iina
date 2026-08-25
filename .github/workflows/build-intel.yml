@@ -1,0 +1,59 @@
+name: Build IINA Intel
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26-intel
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download x86_64 libraries
+        run: ./other/download_libs.sh --arch x86_64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build IINA
+        run: |
+          xcodebuild \
+            -project iina.xcodeproj \
+            -scheme iina \
+            -configuration Nightly \
+            -derivedDataPath "$PWD/build" \
+            ARCHS=x86_64 \
+            ONLY_ACTIVE_ARCH=YES \
+            MARKETING_VERSION=1.4.99 \
+            CURRENT_PROJECT_VERSION=1499 \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package IINA
+        run: |
+          APP="$PWD/build/Build/Products/Nightly/IINA.app"
+      
+          test -d "$APP"
+      
+          codesign --force --deep --sign - "$APP"
+      
+          ditto \
+            -c \
+            -k \
+            --sequesterRsrc \
+            --keepParent \
+            "$APP" \
+            "$PWD/IINA-1.4.99-Intel.zip"
+
+      - name: Upload IINA
+        uses: actions/upload-artifact@v6
+        with:
+          name: IINA-1.4.99-Intel
+          path: IINA-1.4.99-Intel.zip
+          retention-days: 1
