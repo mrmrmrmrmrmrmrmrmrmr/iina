@@ -39,6 +39,8 @@ jobs:
         run: |
           set -euxo pipefail
 
+          echo "=== Effective build settings ==="
+
           xcodebuild \
             -project iina.xcodeproj \
             -scheme iina \
@@ -54,7 +56,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -showBuildSettings \
             | grep -E \
-              'CONFIGURATION =|ASSETCATALOG_COMPILER_APPICON_NAME|PRODUCT_BUNDLE_IDENTIFIER|MARKETING_VERSION|CURRENT_PROJECT_VERSION'
+              'CONFIGURATION =|ASSETCATALOG_COMPILER_APPICON_NAME|PRODUCT_BUNDLE_IDENTIFIER|MARKETING_VERSION|CURRENT_PROJECT_VERSION|ARCHS ='
 
       - name: Build IINA
         run: |
@@ -82,17 +84,41 @@ jobs:
           APP="$PWD/build/Build/Products/Release/IINA.app"
 
           echo "=== Check app exists ==="
+
           test -d "$APP"
 
+          echo "=== App path ==="
+          echo "$APP"
+
+          echo "=== Version ==="
+
+          VERSION=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleShortVersionString" \
+              "$APP/Contents/Info.plist"
+          )
+
+          BUILD=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleVersion" \
+              "$APP/Contents/Info.plist"
+          )
+
+          echo "Version=$VERSION"
+          echo "Build=$BUILD"
+
           echo "=== Info.plist icon config ==="
+
           plutil -p "$APP/Contents/Info.plist" \
             | grep -E 'CFBundleIcon(Name|File|Files)' || true
 
           echo "=== Icon resources ==="
+
           find "$APP/Contents/Resources" \
             -maxdepth 1 \
             \( \
-              -iname "*.icns" \
+              -iname "AppIcon*" \
+              -o -iname "*.icns" \
               -o -iname "*.icon" \
               -o -iname "Assets.car" \
             \) \
@@ -115,6 +141,18 @@ jobs:
           echo "CFBundleIconFile=$ICON_FILE"
           echo "CFBundleIconName=$ICON_NAME"
 
+          echo "=== Verify version ==="
+
+          if [ "$VERSION" != "1.4.99" ]; then
+            echo "::error::Version is '$VERSION', expected '1.4.99'"
+            exit 1
+          fi
+
+          if [ "$BUILD" != "1499" ]; then
+            echo "::error::Build is '$BUILD', expected '1499'"
+            exit 1
+          fi
+
           echo "=== Verify Release icon ==="
 
           if [ "$ICON_FILE" != "AppIcon" ]; then
@@ -133,12 +171,40 @@ jobs:
           fi
 
           if [ -f "$APP/Contents/Resources/AppIconNightly.icns" ]; then
-            echo "Warning: AppIconNightly.icns also exists in bundle."
+            echo "::warning::AppIconNightly.icns also exists in bundle"
           fi
 
-          echo "Release icon verification passed."
+          echo "=== Release verification passed ==="
+          echo "Version: $VERSION"
+          echo "Build: $BUILD"
+          echo "Icon: $ICON_FILE / $ICON_NAME"
 
-      - name: Sign and package IINA
+      - name: Sign IINA
+        run: |
+          set -euxo pipefail
+
+          APP="$PWD/build/Build/Products/Release/IINA.app"
+
+          test -d "$APP"
+
+          echo "=== Ad-hoc sign ==="
+
+          codesign \
+            --force \
+            --deep \
+            --sign - \
+            "$APP"
+
+          echo "=== Verify signature ==="
+
+          codesign \
+            --verify \
+            --deep \
+            --strict \
+            --verbose=2 \
+            "$APP"
+
+      - name: Package IINA
         run: |
           set -euxo pipefail
 
@@ -147,22 +213,10 @@ jobs:
 
           test -d "$APP"
 
-          echo "=== Ad-hoc sign ==="
-          codesign \
-            --force \
-            --deep \
-            --sign - \
-            "$APP"
-
-          echo "=== Verify signature ==="
-          codesign \
-            --verify \
-            --deep \
-            --strict \
-            --verbose=2 \
-            "$APP"
+          rm -f "$ZIP"
 
           echo "=== Package ==="
+
           ditto \
             -c \
             -k \
@@ -172,11 +226,132 @@ jobs:
             "$ZIP"
 
           echo "=== Package result ==="
+
+          test -f "$ZIP"
+
           ls -lh "$ZIP"
+
+      - name: Verify packaged ZIP
+        run: |
+          set -euxo pipefail
+
+          ZIP="$PWD/IINA-1.4.99-Intel.zip"
+          CHECK="$PWD/package-check"
+
+          echo "=== Prepare verification directory ==="
+
+          rm -rf "$CHECK"
+          mkdir -p "$CHECK"
+
+          echo "=== Extract packaged ZIP ==="
+
+          ditto \
+            -x \
+            -k \
+            "$ZIP" \
+            "$CHECK"
+
+          APP="$CHECK/IINA.app"
+
+          echo "=== Check extracted app ==="
+
+          test -d "$APP"
+
+          echo "=== Packaged version ==="
+
+          VERSION=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleShortVersionString" \
+              "$APP/Contents/Info.plist"
+          )
+
+          BUILD=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleVersion" \
+              "$APP/Contents/Info.plist"
+          )
+
+          echo "Version=$VERSION"
+          echo "Build=$BUILD"
+
+          echo "=== Packaged icon config ==="
+
+          plutil -p "$APP/Contents/Info.plist" \
+            | grep -E 'CFBundleIcon(Name|File|Files)'
+
+          ICON_FILE=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleIconFile" \
+              "$APP/Contents/Info.plist"
+          )
+
+          ICON_NAME=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleIconName" \
+              "$APP/Contents/Info.plist"
+          )
+
+          echo "ZIP CFBundleIconFile=$ICON_FILE"
+          echo "ZIP CFBundleIconName=$ICON_NAME"
+
+          echo "=== Packaged icon resources ==="
+
+          find "$APP/Contents/Resources" \
+            -maxdepth 1 \
+            \( \
+              -iname "AppIcon*" \
+              -o -iname "*.icns" \
+              -o -iname "*.icon" \
+              -o -iname "Assets.car" \
+            \) \
+            -print
+
+          echo "=== Verify packaged version ==="
+
+          if [ "$VERSION" != "1.4.99" ]; then
+            echo "::error::Packaged version is '$VERSION', expected '1.4.99'"
+            exit 1
+          fi
+
+          if [ "$BUILD" != "1499" ]; then
+            echo "::error::Packaged build is '$BUILD', expected '1499'"
+            exit 1
+          fi
+
+          echo "=== Verify packaged icon ==="
+
+          if [ "$ICON_FILE" != "AppIcon" ]; then
+            echo "::error::Packaged CFBundleIconFile is '$ICON_FILE', expected 'AppIcon'"
+            exit 1
+          fi
+
+          if [ "$ICON_NAME" != "AppIcon" ]; then
+            echo "::error::Packaged CFBundleIconName is '$ICON_NAME', expected 'AppIcon'"
+            exit 1
+          fi
+
+          if [ ! -f "$APP/Contents/Resources/AppIcon.icns" ]; then
+            echo "::error::Packaged AppIcon.icns not found"
+            exit 1
+          fi
+
+          echo "=== Verify packaged signature ==="
+
+          codesign \
+            --verify \
+            --deep \
+            --strict \
+            --verbose=2 \
+            "$APP"
+
+          echo "=== Packaged ZIP verification passed ==="
+          echo "Version: $VERSION"
+          echo "Build: $BUILD"
+          echo "Icon: $ICON_FILE / $ICON_NAME"
 
       - name: Upload IINA
         uses: actions/upload-artifact@v6
         with:
-          name: IINA-1.4.99-Intel
+          name: IINA-1.4.99-Intel-${{ github.run_number }}
           path: IINA-1.4.99-Intel.zip
           retention-days: 1
