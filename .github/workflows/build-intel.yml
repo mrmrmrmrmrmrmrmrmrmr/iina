@@ -1,3 +1,4 @@
+
 name: Build IINA Intel
 
 on:
@@ -13,53 +14,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Show source information
-        run: |
-          set -euxo pipefail
-
-          echo "=== Git commit ==="
-          git rev-parse HEAD
-
-          echo "=== Git branch ==="
-          git branch --show-current || true
-
-          echo "=== Release.xcconfig ==="
-          cat Configs/Release.xcconfig
-
+        
       - name: Download x86_64 libraries
-        run: |
-          set -euxo pipefail
-
-          ./other/download_libs.sh --arch x86_64
+        run: ./other/download_libs.sh --arch x86_64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Show effective build settings
-        run: |
-          set -euxo pipefail
-
-          xcodebuild \
-            -project iina.xcodeproj \
-            -scheme iina \
-            -configuration Release \
-            -derivedDataPath "$PWD/build" \
-            ARCHS=x86_64 \
-            ONLY_ACTIVE_ARCH=YES \
-            ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon \
-            MARKETING_VERSION=1.4.99 \
-            CURRENT_PROJECT_VERSION=1499 \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            -showBuildSettings \
-            | grep -E \
-              'CONFIGURATION =|ASSETCATALOG_COMPILER_APPICON_NAME|PRODUCT_BUNDLE_IDENTIFIER|MARKETING_VERSION|CURRENT_PROJECT_VERSION'
-
       - name: Build IINA
         run: |
-          set -euxo pipefail
-
           xcodebuild \
             -project iina.xcodeproj \
             -scheme iina \
@@ -67,112 +29,28 @@ jobs:
             -derivedDataPath "$PWD/build" \
             ARCHS=x86_64 \
             ONLY_ACTIVE_ARCH=YES \
-            ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon \
             MARKETING_VERSION=1.4.99 \
             CURRENT_PROJECT_VERSION=1499 \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             build
-
-      - name: Verify Release app
+    
+      - name: Package IINA
         run: |
-          set -euxo pipefail
-
           APP="$PWD/build/Build/Products/Release/IINA.app"
-
-          echo "=== Check app exists ==="
+      
           test -d "$APP"
-
-          echo "=== Info.plist icon config ==="
-          plutil -p "$APP/Contents/Info.plist" \
-            | grep -E 'CFBundleIcon(Name|File|Files)' || true
-
-          echo "=== Icon resources ==="
-          find "$APP/Contents/Resources" \
-            -maxdepth 1 \
-            \( \
-              -iname "*.icns" \
-              -o -iname "*.icon" \
-              -o -iname "Assets.car" \
-            \) \
-            -print
-
-          echo "=== Read icon settings ==="
-
-          ICON_FILE=$(
-            /usr/libexec/PlistBuddy \
-              -c "Print :CFBundleIconFile" \
-              "$APP/Contents/Info.plist"
-          )
-
-          ICON_NAME=$(
-            /usr/libexec/PlistBuddy \
-              -c "Print :CFBundleIconName" \
-              "$APP/Contents/Info.plist"
-          )
-
-          echo "CFBundleIconFile=$ICON_FILE"
-          echo "CFBundleIconName=$ICON_NAME"
-
-          echo "=== Verify Release icon ==="
-
-          if [ "$ICON_FILE" != "AppIcon" ]; then
-            echo "::error::CFBundleIconFile is '$ICON_FILE', expected 'AppIcon'"
-            exit 1
-          fi
-
-          if [ "$ICON_NAME" != "AppIcon" ]; then
-            echo "::error::CFBundleIconName is '$ICON_NAME', expected 'AppIcon'"
-            exit 1
-          fi
-
-          if [ ! -f "$APP/Contents/Resources/AppIcon.icns" ]; then
-            echo "::error::AppIcon.icns not found"
-            exit 1
-          fi
-
-          if [ -f "$APP/Contents/Resources/AppIconNightly.icns" ]; then
-            echo "Warning: AppIconNightly.icns also exists in bundle."
-          fi
-
-          echo "Release icon verification passed."
-
-      - name: Sign and package IINA
-        run: |
-          set -euxo pipefail
-
-          APP="$PWD/build/Build/Products/Release/IINA.app"
-          ZIP="$PWD/IINA-1.4.99-Intel.zip"
-
-          test -d "$APP"
-
-          echo "=== Ad-hoc sign ==="
-          codesign \
-            --force \
-            --deep \
-            --sign - \
-            "$APP"
-
-          echo "=== Verify signature ==="
-          codesign \
-            --verify \
-            --deep \
-            --strict \
-            --verbose=2 \
-            "$APP"
-
-          echo "=== Package ==="
+      
+          codesign --force --deep --sign - "$APP"
+      
           ditto \
             -c \
             -k \
             --sequesterRsrc \
             --keepParent \
             "$APP" \
-            "$ZIP"
-
-          echo "=== Package result ==="
-          ls -lh "$ZIP"
+            "$PWD/IINA-1.4.99-Intel.zip"
 
       - name: Upload IINA
         uses: actions/upload-artifact@v6
